@@ -155,18 +155,18 @@ def detect_objects(image_path, model_path, class_names, conf_threshold=0.25, iou
 
 
 
-def calculate_distance_geometric(detection_info, focal_length_pixels=546.22, real_diameter_mm=28, pixel_measure_type='long_side'):
+def calculate_distance_geometric(detection_info, focal_length_pixels=546.22, real_diameter_mm=28, pixel_measure_type='short_side'):
     """
     使用几何法计算锁孔到相机的距离。
+    
+    现在使用对数公式: distance = 18.5910 * log(1/sqrt(w*h)) + 107.7396
 
     Args:
         detection_info (dict): 单个锁孔的检测信息，包含 'w' (宽度) 和 'h' (高度)。
                                 例如: {"x": ..., "y": ..., "w": 100, "h": 90}
-        focal_length_pixels (float): 相机焦距，单位像素。
-        real_diameter_mm (float): 锁孔的实际物理直径，单位毫米。
-        pixel_measure_type (str): 指定使用识别框的哪个边作为像素尺寸 'd'。
-                                  可以是 'long_side' (长边) 或 'short_side' (短边)。
-                                  默认为 'long_side'。
+        focal_length_pixels (float): 未使用，保留参数以兼容旧代码
+        real_diameter_mm (float): 未使用，保留参数以兼容旧代码
+        pixel_measure_type (str): 未使用，保留参数以兼容旧代码
 
     Returns:
         float: 锁孔到相机的距离 (厘米)，如果无法计算则返回 None。
@@ -182,23 +182,15 @@ def calculate_distance_geometric(detection_info, focal_length_pixels=546.22, rea
         # 边界框信息无效
         return None
 
-    d_pixel = 0.0
-    if pixel_measure_type == 'long_side':
-        d_pixel = max(w_pixel, h_pixel)
-    elif pixel_measure_type == 'short_side':
-        d_pixel = min(w_pixel, h_pixel)
-    else:
-        print(f"Error: Unsupported pixel_measure_type '{pixel_measure_type}'. Use 'long_side' or 'short_side'.")
-        return None
-
-    if d_pixel <= 0: # 避免除以零
-        return None
-
-    # 使用公式 Z = (f * D) / d 计算距离 (单位为毫米)
-    distance_mm = (focal_length_pixels * real_diameter_mm) / d_pixel
+    # 计算 1/sqrt(w*h)
+    inv_sqrt_area = 1 / math.sqrt(w_pixel * h_pixel)
     
-    # 转换为厘米
-    distance_cm = distance_mm / 10.0
+    # 使用对数公式计算距离: 18.5910 * log(1/sqrt(w*h)) + 107.7396
+    distance_cm = 18.5910 * math.log(inv_sqrt_area) + 107.7396
+    
+    # 确保距离为正值
+    if distance_cm < 0:
+        distance_cm = 0
     
     return distance_cm
 
@@ -252,13 +244,10 @@ if __name__ == "__main__":
                     "is_key_in": result_dict["is_key_in"]
                 }
                 result[filename] = new_dict
-                
-            print(f"估算的锁孔距离: {distance:.2f} 厘米" if distance else "无法估算距离")
             
         all_detection_results.update(result)
 
     # 打印最终的 JSON 格式结果
-    print("\n检测结果:")
     print(json.dumps(all_detection_results, indent=4))
 
 
