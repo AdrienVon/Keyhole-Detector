@@ -1,4 +1,0 @@
-train: ./train/images  # 训练集图像路径
-val: ./val/images    # 验证集图像路径
-nc: 2                                      # 类别数量
-names: ['lock','key']                           # 类别名称列表
