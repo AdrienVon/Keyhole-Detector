@@ -76,9 +76,6 @@ def detect_objects(image_path, model_path, class_names, conf_threshold=0.25, iou
 # 模块二：距离计算
 # ==============================================================================
 def calculate_distance_geometric(detection_info):
-    """
-    使用对数公式计算锁孔到相机的距离。
-    """
     if not isinstance(detection_info, dict) or 'w' not in detection_info or 'h' not in detection_info:
         return None
     w_pixel, h_pixel = detection_info.get('w'), detection_info.get('h')
@@ -90,20 +87,9 @@ def calculate_distance_geometric(detection_info):
 
 
 # ==============================================================================
-# 模块三：角度识别 (核心整合部分 - 无可视化)
+# 模块三：角度识别
 # ==============================================================================
 def recognize_lock_angle(image_path, lock_bbox_info):
-    """
-    从原始图像中根据边界框裁剪出锁孔，并计算其旋转角度和归位状态。(无可视化版本)
-
-    Args:
-        image_path (str): 原始图片的完整路径。
-        lock_bbox_info (dict): 包含锁孔 'x', 'y', 'w', 'h' 的字典。
-
-    Returns:
-        tuple: (angle, is_original) 或 (None, None) 如果失败。
-    """
-    # --- 内部辅助函数 ---
     def find_two_largest_peaks(data):
         peaks = []
         for i in range(1, len(data) - 1):
@@ -115,9 +101,7 @@ def recognize_lock_angle(image_path, lock_bbox_info):
         peaks.sort(key=lambda x: x[1], reverse=True)
         return peaks[:2]
     
-    # --- 主流程开始 ---
     try:
-        # 1. 从原图中裁剪锁孔区域
         original_img = cv2.imread(image_path)
         if original_img is None:
             print(f"Angle Error: 无法读取原始图片 {image_path}")
@@ -126,13 +110,11 @@ def recognize_lock_angle(image_path, lock_bbox_info):
         x, y, w, h = lock_bbox_info['x'], lock_bbox_info['y'], lock_bbox_info['w'], lock_bbox_info['h']
         cropped_img = original_img[y:y+h, x:x+w]
 
-        # 2. 预处理裁剪后的图像
         gray = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2GRAY)
         _, seg = cv2.threshold(gray, 20, 255, cv2.THRESH_BINARY_INV)
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(seg, connectivity=8)
 
         if num_labels <= 1:
-            print("Angle Error: 预处理后未找到锁孔主体。")
             return None, None
 
         areas = stats[1:, cv2.CC_STAT_AREA]
@@ -140,23 +122,19 @@ def recognize_lock_angle(image_path, lock_bbox_info):
         binary_image = np.zeros_like(seg)
         binary_image[labels == largest_component_label] = 255
         
-        # 3. 计算角度
         h_bin, w_bin = binary_image.shape
         moments = cv2.moments(binary_image)
         if moments["m00"] == 0:
-            print("Angle Error: 锁孔二值图为空。")
             return None, None
             
-        center_x = int(moments["m10"] / moments["m00"])
-        center_y = int(moments["m01"] / moments["m00"])
+        center_x, center_y = int(moments["m10"] / moments["m00"]), int(moments["m01"] / moments["m00"])
         center_point = (center_x, center_y)
 
         projections = []
         for angle_rot in range(180):
             M = cv2.getRotationMatrix2D(center_point, angle_rot, 1.0)
             rotated_image = cv2.warpAffine(binary_image, M, (w_bin, h_bin))
-            projection_value = np.sum(rotated_image[:, center_x])
-            projections.append(projection_value)
+            projections.append(np.sum(rotated_image[:, center_x]))
             
         top_two_peaks = find_two_largest_peaks(np.array(projections))
         peak1_angle = top_two_peaks[0][0]
@@ -175,9 +153,7 @@ def recognize_lock_angle(image_path, lock_bbox_info):
         is_original = abs(final_angle) < 5.0
 
         return round(final_angle, 2), is_original
-
-    except Exception as e:
-        print(f"Angle Error: 在角度识别过程中发生未知错误: {e}")
+    except Exception:
         return None, None
 
 
@@ -187,43 +163,58 @@ def recognize_lock_angle(image_path, lock_bbox_info):
 if __name__ == "__main__":
     # --- 配置 ---
     model_path = "src/best.onnx"
-    # 可以处理单个图片或一个图片列表
-    image_paths = [
-        "DataAll/1748242655899.jpg"
-    ]
+    # *** 修改为要处理的图片文件夹路径 ***
+    image_folder_path = "DataAll" 
     class_names = ['lock', 'key']
     
     # --- 运行 ---
     all_results = {}
-    for img_path in image_paths:
-        print(f"\n===== 处理图片: {img_path} =====")
+    
+    # 筛选出文件夹中常见的图片格式
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
+    image_files = [f for f in os.listdir(image_folder_path) if f.lower().endswith(valid_extensions)]
+    
+    print(f"在文件夹 '{image_folder_path}' 中找到 {len(image_files)} 张图片。")
+
+    for filename in image_files:
+        img_path = os.path.join(image_folder_path, filename)
+        print(f"\n===== 处理图片: {filename} =====")
         
         # 1. 目标检测
         detection_result_dict = detect_objects(img_path, model_path, class_names)
-        filename = os.path.basename(img_path)
         detection_info = detection_result_dict.get(filename, {})
         
         if not detection_info or detection_info.get("w", 0) <= 0:
-            print("未检测到锁孔，跳过后续处理。")
-            all_results.update(detection_result_dict)
+            print("未检测到锁孔，跳过。")
+            # 即使未检测到，也按格式添加空结果
+            all_results[filename] = {}
             continue
 
         # 2. 计算距离
         distance = calculate_distance_geometric(detection_info)
-        if distance is not None:
-            detection_info["distance"] = round(distance, 2)
         
         # 3. 识别角度
-        print("开始识别锁孔角度...")
         lock_angle, is_lock_original = recognize_lock_angle(img_path, detection_info)
-        if lock_angle is not None:
-            detection_info["lock_angle"] = lock_angle
-            detection_info["is_lock_original"] = is_lock_original
-            print(f"角度识别完成: Angle={lock_angle}, Is Original={is_lock_original}")
-        else:
-            print("角度识别失败。")
+
+        # 4. 根据逻辑计算 key_angle
+        key_angle = 0.0
+        if lock_angle is not None and detection_info.get("is_key_in", False):
+            key_angle = lock_angle
         
-        all_results[filename] = detection_info
+        # 5. 按指定格式和顺序构建最终的字典
+        final_output = {
+            "x": detection_info.get("x", 0),
+            "y": detection_info.get("y", 0),
+            "w": detection_info.get("w", 0),
+            "h": detection_info.get("h", 0),
+            "distance": round(distance, 2) if distance is not None else 0.0,
+            "is_lock_original": is_lock_original if is_lock_original is not None else False,
+            "lock_angle": lock_angle if lock_angle is not None else 0.0,
+            "is_key_in": detection_info.get("is_key_in", False),
+            "key_angle": key_angle
+        }
+        
+        all_results[filename] = final_output
 
     # 打印最终的 JSON 格式结果
     print("\n\n===== 最终 JSON 输出 =====")
