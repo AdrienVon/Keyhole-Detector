@@ -166,48 +166,57 @@ class LockAnalyzer:
         distance_cm = DISTANCE_PARAM_A * math.log(inv_sqrt_area) + DISTANCE_PARAM_B
         return max(0, distance_cm)
 
+    # 在 LockAnalyzer 类中
+
     def _recognize_angle(self, original_img: np.ndarray, lock_bbox_info: dict) -> tuple:
         """私有方法：执行核心的角度识别算法。"""
         try:
-            # 1. 裁剪和预处理
+            # 1. & 2. & 3. 裁剪、预处理、计算投影 (这部分保持不变)
             x, y, w, h = lock_bbox_info['x'], lock_bbox_info['y'], lock_bbox_info['w'], lock_bbox_info['h']
             cropped_img = original_img[y:y+h, x:x+w]
             gray = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2GRAY)
             _, seg = cv2.threshold(gray, ANGLE_PREPROCESS_THRESHOLD, 255, cv2.THRESH_BINARY_INV)
-            
-            # 2. 提取最大连通组件
             num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(seg, connectivity=8)
             if num_labels <= 1: return None, None
             areas = stats[1:, cv2.CC_STAT_AREA]
             largest_component_label = np.argmax(areas) + 1
             binary_image = np.zeros_like(seg, dtype=np.uint8)
             binary_image[labels == largest_component_label] = 255
-            
-            # 3. 计算投影
             h_bin, w_bin = binary_image.shape
             moments = cv2.moments(binary_image)
             if moments["m00"] == 0: return None, None
             center_x, center_y = int(moments["m10"] / moments["m00"]), int(moments["m01"] / moments["m00"])
             center_point = (center_x, center_y)
             projections = np.array([np.sum(cv2.warpAffine(binary_image, cv2.getRotationMatrix2D(center_point, angle, 1.0), (w_bin, h_bin))[:, center_x]) for angle in range(180)])
-            
-            # 4. 寻找双峰并计算角平分线
+
+            # 4. 寻找双峰并计算角平分线 (这部分保持不变)
             peak1_angle, peak2_angle = find_two_largest_peaks_np(projections)
             if abs(peak1_angle - peak2_angle) > 90:
                 bisector_angle = ((peak1_angle + peak2_angle + 180) / 2) % 180
             else:
                 bisector_angle = (peak1_angle + peak2_angle) / 2
-                
-            # 5. 将几何角度转换为用户易于理解的旋转角度
-            final_axis_angle = 90 - bisector_angle
-            keyhole_orientation = 90 - final_axis_angle
-            if keyhole_orientation > 90: keyhole_orientation -= 180
-            final_angle = -keyhole_orientation
+
+            # ==================================================================
+            # 步骤 5: 【核心修正】根据新的旋转规则解释角度
+            # ==================================================================
+            # 'bisector_angle' 是锁孔对称轴与图像水平方向的夹角 (范围 0-180)。
+            # 由于锁孔只在 0-90° 顺时针旋转，这个角度直接对应了锁孔的旋转角度。
+            # 但由于对称性，一个旋转了 theta 度的轴和一个旋转了 180-theta 度的轴
+            # 在投影上是无法区分的。我们需要选择落在 0-90 区间内的那个解。
             
-            # 6. 判断是否归位
+            # 例如，如果 bisector_angle 是 170°，它在物理上等同于 10° 的轴，
+            # 因为旋转范围是 0-90°，所以真正的旋转角度是 10°。
+            
+            if bisector_angle > 90:
+                final_angle = 180 - bisector_angle
+            else:
+                final_angle = bisector_angle
+
+            # 6. 判断是否归位 (逻辑不变，但基于新的 final_angle)
             is_original = bool(abs(final_angle) < ANGLE_RESET_THRESHOLD)
-            
+
             return round(final_angle, 2), is_original
+        
         except Exception as e:
             # 在复杂计算中捕获任何可能的异常，保证程序的健壮性
             print(f"角度识别时发生错误: {e}")

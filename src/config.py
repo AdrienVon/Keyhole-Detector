@@ -38,7 +38,7 @@ ANGLE_PREPROCESS_THRESHOLD = 20
 
 # 用于判断 is_lock_original (锁孔是否归位) 的角度界限（单位：度）。
 # 如果计算出的旋转角度绝对值小于此值，则认为锁孔已归位。
-ANGLE_RESET_THRESHOLD = 5.0
+ANGLE_RESET_THRESHOLD = 8.0
 
 # ==============================================================================
 # 距离计算配置
