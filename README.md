@@ -1,4 +1,4 @@
-- - # Keyhole Inspector - 自动化锁孔分析系统
+- - # Keyhole-Detector - 自动化锁孔分析系统
 
     Keyhole Inspector 是一个基于 Python 和 OpenCV 的高级计算机视觉项目，旨在实现对锁孔图像的自动化分析。它利用内置的 YOLOv5 深度学习模型进行目标检测，并结合传统图像处理算法，精确计算锁孔的距离和旋转角度。
 
