@@ -25,14 +25,7 @@ Keyhole Inspector 是一个基于 Python 和 OpenCV 的高级计算机视觉项�
 
 ## 环境要求
 
-- Python 3.8+
-- OpenCV
-- NumPy
 
-您可以使用以下命令安装所需依赖：
-```bash
-pip install opencv-python numpy
-```
 
 ## 快速启动流程
 
